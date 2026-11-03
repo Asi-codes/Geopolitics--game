@@ -54,7 +54,6 @@
 <p id="turnInfo"></p>
 <table id="board" border="1" style="margin: auto;"></table>
 
-
         <button onclick="logout()">Log Out</button>
     </div>
 
@@ -83,7 +82,6 @@ import { saveNewGame } from "./database.js";
             serverTimestamp
         } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-
         // Connect to Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBZKE8iV1oIyPCoLlonCmRjbpQ7A9E9wpg",
@@ -97,7 +95,6 @@ import { saveNewGame } from "./database.js";
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-
 
         // Create a new account
         window.signup = async function() {
@@ -123,7 +120,6 @@ import { saveNewGame } from "./database.js";
             }
         };
 
-
         // Log into an existing account
         window.login = async function() {
             let email = document.getElementById("email").value.trim();
@@ -141,7 +137,6 @@ import { saveNewGame } from "./database.js";
             }
         };
 
-
         // Log out
         window.logout = async function() {
             try {
@@ -151,7 +146,6 @@ import { saveNewGame } from "./database.js";
                     "Could not log out.";
             }
         };
-
 
         // Check if someone is logged in
         onAuthStateChanged(auth, function(account) {
