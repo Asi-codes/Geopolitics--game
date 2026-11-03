@@ -64,6 +64,9 @@
 
         import { initializeApp }
         from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+        import { COUNTRIES } from "./countries.js";
+import { Game } from "./game.js";
+import { saveNewGame } from "./database.js";
 
         import {
             getAuth,
@@ -165,7 +168,43 @@
             }
         });
 
-    </script>
+    <// Fill the dropdown with every country
+let dropdown = document.getElementById("countryPick");
+for (let country of COUNTRIES) {
+    let option = document.createElement("option");
+    option.value = country.name;
+    option.innerText = country.name;
+    dropdown.appendChild(option);
+}
+
+// Start a new game with the chosen country
+window.startGame = async function() {
+    let chosen = document.getElementById("countryPick").value;
+    let game = new Game(COUNTRIES, chosen);
+
+    try {
+        let gameId = await saveNewGame(db, auth.currentUser.uid, game.getDataToSave());
+        document.getElementById("message").innerText = "Game saved. ID: " + gameId;
+        showBoard(game);
+    } catch (error) {
+        document.getElementById("message").innerText = "Could not start the game.";
+    }
+};
+
+// Show every country with its soldiers and who holds it
+function showBoard(game) {
+    let board = document.getElementById("board");
+    board.innerHTML = "<tr><th>Country</th><th>Soldiers</th><th>Held by</th></tr>";
+
+    for (let country of game.countries) {
+        board.innerHTML += "<tr><td>" + country.name + "</td><td>" +
+            country.getSoldiers() + "</td><td>" + country.heldBy + "</td></tr>";
+    }
+
+    document.getElementById("turnInfo").innerText = "First turn: " + game.getCurrentPlayerName();
+}
+
+        /script>
 
 </body>
 </html>
