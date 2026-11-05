@@ -254,21 +254,33 @@
         // ---------- AI commentary ----------
         // Gemini (Google's AI) writes a short commentary line for battles.
         // It is loaded inside try/catch, so the game still works if the AI is not available.
-        const AI_MODEL = "gemini-3.8-flash";
-        let aiModel = null;              // stays empty if the AI could not be loaded
+        const AI_MODELS = ["gemini-3.8-flash", "gemini-4-argon"];   // we try them in this order
+        const RECAPTCHA_KEY = "6LcCThluAAAAANgL45ipwh6FcNmhaZ-m1eq1dvp3";   // for App Check (not a secret)
+        let aiModels = [];               // stays empty if the AI could not be loaded
         let commentaryBusy = false;      // true while we wait for the AI to answer
         let lastCommentaryTime = 0;      // when the last commentary was requested
 
         async function setupAI() {
             try {
                 let appTools = await import("https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js");
+                let checkTools = await import("https://www.gstatic.com/firebasejs/12.0.0/firebase-app-check.js");
                 let aiTools = await import("https://www.gstatic.com/firebasejs/12.0.0/firebase-ai.js");
 
                 let aiApp = appTools.initializeApp(firebaseConfig, "ai-app");
+
+                // App Check proves that the request comes from our real website
+                checkTools.initializeAppCheck(aiApp, {
+                    provider: new checkTools.ReCaptchaEnterpriseProvider(RECAPTCHA_KEY),
+                    isTokenAutoRefreshEnabled: true
+                });
+
                 let ai = aiTools.getAI(aiApp, { backend: new aiTools.GoogleAIBackend() });
-                aiModel = aiTools.getGenerativeModel(ai, { model: AI_MODEL });
+
+                for (let name of AI_MODELS) {
+                    aiModels.push(aiTools.getGenerativeModel(ai, { model: name }));
+                }
             } catch (error) {
-                aiModel = null;
+                aiModels = [];
                 console.log("AI setup problem:", error);   // shows in the Console (F12) if the AI cannot start
             }
         }
@@ -279,7 +291,7 @@
         // We skip the request if the AI is busy or was asked less than 4 seconds ago,
         // so we stay inside the free usage limit.
         async function askForCommentary(battleText) {
-            if (aiModel === null || commentaryBusy) {
+            if (aiModels.length === 0 || commentaryBusy) {
                 return;
             }
             if (Date.now() - lastCommentaryTime < 4000) {
@@ -289,15 +301,25 @@
             commentaryBusy = true;
             lastCommentaryTime = Date.now();
 
-            try {
-                let prompt = "You are an excited sports commentator for a war board game like Risk. " +
-                    "Write ONE short sentence (maximum 25 words) commenting on this battle. " +
-                    "Battle: " + battleText;
-                let result = await aiModel.generateContent(prompt);
-                addLog("Commentator: " + result.response.text().trim());
-            } catch (error) {
-                // If the AI fails, the game simply carries on without commentary.
-                console.log("AI commentary problem:", error);
+            let prompt = "You are an excited sports commentator for a war board game like Risk. " +
+                "Write ONE short sentence (maximum 25 words) commenting on this battle. " +
+                "Battle: " + battleText;
+            let commentary = "";
+
+            // Try each model in turn. If one says "high demand", try the next one.
+            for (let model of aiModels) {
+                try {
+                    let result = await model.generateContent(prompt);
+                    commentary = result.response.text().trim();
+                    break;   // it worked, so stop trying
+                } catch (error) {
+                    console.log("AI problem (trying the next model if there is one):", error);
+                }
+            }
+
+            // If every model failed, the game simply carries on without commentary.
+            if (commentary !== "") {
+                addLog("Commentator: " + commentary);
             }
 
             commentaryBusy = false;
