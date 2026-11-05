@@ -1,7 +1,7 @@
 # Geopolitics Game (INF4001 Entrance Exam)
 
-Name: (write your name here)
-Student number: (write your student number here)
+Name: Asive Ave Magqabi
+Student number:MAQ
 
 ## Links
 - Live game: https://asi-codes.github.io/Geopolitics--game/
