@@ -269,6 +269,7 @@
                 aiModel = aiTools.getGenerativeModel(ai, { model: AI_MODEL });
             } catch (error) {
                 aiModel = null;
+                console.log("AI setup problem:", error);   // shows in the Console (F12) if the AI cannot start
             }
         }
         setupAI();
@@ -296,6 +297,7 @@
                 addLog("Commentator: " + result.response.text().trim());
             } catch (error) {
                 // If the AI fails, the game simply carries on without commentary.
+                console.log("AI commentary problem:", error);
             }
 
             commentaryBusy = false;
