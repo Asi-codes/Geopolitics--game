@@ -254,7 +254,7 @@
         // ---------- AI commentary ----------
         // Gemini (Google's AI) writes a short commentary line for battles.
         // It is loaded inside try/catch, so the game still works if the AI is not available.
-        const AI_MODEL = "gemini-2.5-flash";
+        const AI_MODEL = "gemini-3.8-flash";
         let aiModel = null;              // stays empty if the AI could not be loaded
         let commentaryBusy = false;      // true while we wait for the AI to answer
         let lastCommentaryTime = 0;      // when the last commentary was requested
