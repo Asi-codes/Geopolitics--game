@@ -251,6 +251,57 @@
         }
 
 
+        // ---------- AI commentary ----------
+        // Gemini (Google's AI) writes a short commentary line for battles.
+        // It is loaded inside try/catch, so the game still works if the AI is not available.
+        const AI_MODEL = "gemini-2.5-flash";
+        let aiModel = null;              // stays empty if the AI could not be loaded
+        let commentaryBusy = false;      // true while we wait for the AI to answer
+        let lastCommentaryTime = 0;      // when the last commentary was requested
+
+        async function setupAI() {
+            try {
+                let appTools = await import("https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js");
+                let aiTools = await import("https://www.gstatic.com/firebasejs/12.0.0/firebase-ai.js");
+
+                let aiApp = appTools.initializeApp(firebaseConfig, "ai-app");
+                let ai = aiTools.getAI(aiApp, { backend: new aiTools.GoogleAIBackend() });
+                aiModel = aiTools.getGenerativeModel(ai, { model: AI_MODEL });
+            } catch (error) {
+                aiModel = null;
+            }
+        }
+        setupAI();
+
+
+        // Ask the AI for one short commentary line about a battle and add it to the log.
+        // We skip the request if the AI is busy or was asked less than 4 seconds ago,
+        // so we stay inside the free usage limit.
+        async function askForCommentary(battleText) {
+            if (aiModel === null || commentaryBusy) {
+                return;
+            }
+            if (Date.now() - lastCommentaryTime < 4000) {
+                return;
+            }
+
+            commentaryBusy = true;
+            lastCommentaryTime = Date.now();
+
+            try {
+                let prompt = "You are an excited sports commentator for a war board game like Risk. " +
+                    "Write ONE short sentence (maximum 25 words) commenting on this battle. " +
+                    "Battle: " + battleText;
+                let result = await aiModel.generateContent(prompt);
+                addLog("Commentator: " + result.response.text().trim());
+            } catch (error) {
+                // If the AI fails, the game simply carries on without commentary.
+            }
+
+            commentaryBusy = false;
+        }
+
+
         // Start a new game with the chosen country
         window.startGame = async function() {
             if (npcRunning) {
@@ -369,6 +420,9 @@
                     let lines = takeNpcTurn(currentGame, player.name);
                     for (let line of lines) {
                         addLog(line);
+                        if (line.includes(" rolled ")) {
+                            askForCommentary(line);   // only battle lines get commentary
+                        }
                         showBoard();
                         // Fast-forward makes the wait much shorter, but you still see every move
                         let wait = 1200;
@@ -459,6 +513,7 @@
 
             document.getElementById("message").innerText = "";
             addLog(text);
+            askForCommentary(text);
             showBoard();
 
             if (currentGame.getWinner() !== null) {
