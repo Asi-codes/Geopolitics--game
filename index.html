@@ -1,7 +1,8 @@
-
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Geopolitics Game</title>
 
     <style>
@@ -21,6 +22,21 @@
             padding: 10px;
             margin: 5px;
             cursor: pointer;
+        }
+
+        #log {
+            max-width: 650px;
+            height: 240px;
+            margin: auto;
+            padding: 8px;
+            overflow: auto;
+            text-align: left;
+            background-color: white;
+            border: 1px solid gray;
+        }
+
+        #log p {
+            margin: 4px 0;
         }
     </style>
 </head>
@@ -47,13 +63,28 @@
     <div id="game" style="display:none;">
         <h2>Welcome!</h2>
         <p id="user"></p>
-    <h3>Choose your country</h3>
-<select id="countryPick"></select>
-<button onclick="startGame()">Start New Game</button>
 
-<p id="turnInfo"></p>
-<table id="board" border="1" style="margin: auto;"></table>
+        <h3>Choose your country</h3>
+        <select id="countryPick"></select>
+        <button onclick="startGame()">Start New Game</button>
+        <p><label><input type="checkbox" id="fastForward"> Fast-forward computer turns</label></p>
 
+        <p id="turnInfo"></p>
+        <table id="board" border="1" style="margin: auto;"></table>
+
+        <h3>Your turn</h3>
+        <p>Soldiers to place: <b id="poolCount">0</b>
+            <select id="placeIn"></select>
+            <button onclick="placeSoldier()">Place 1 Soldier</button></p>
+        <p>Attack from: <select id="attackFrom"></select></p>
+        <p>Target: <select id="attackTarget"></select></p>
+        <button onclick="rollDice()">Roll Dice</button>
+        <button onclick="endTurn()">End Turn</button>
+
+        <h3>Game log</h3>
+        <div id="log"></div>
+
+        <br>
         <button onclick="logout()">Log Out</button>
     </div>
 
@@ -63,9 +94,6 @@
 
         import { initializeApp }
         from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-        import { COUNTRIES } from "./countries.js";
-import { Game } from "./game.js";
-import { saveNewGame } from "./database.js";
 
         import {
             getAuth,
@@ -82,6 +110,12 @@ import { saveNewGame } from "./database.js";
             serverTimestamp
         } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
+        import { COUNTRIES } from "./countries.js";
+        import { Game, describeBattle } from "./game.js";
+        import { takeNpcTurn } from "./npc.js";
+        import { saveNewGame } from "./database.js";
+
+
         // Connect to Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBZKE8iV1oIyPCoLlonCmRjbpQ7A9E9wpg",
@@ -96,10 +130,26 @@ import { saveNewGame } from "./database.js";
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+
+        // These variables remember what is happening in the game right now
+        let currentGame = null;        // the game being played (empty until Start New Game)
+        let humanTurn = false;         // true only while it is YOUR turn
+        let npcRunning = false;        // true while the computer players are playing
+        let attackFinished = false;    // true once your attack for this turn is over
+        let reinforcementsLeft = 0;    // new soldiers you still have to place
+
+
         // Create a new account
         window.signup = async function() {
             let email = document.getElementById("email").value.trim();
             let password = document.getElementById("password").value;
+
+            // Check the form before sending it to Firebase
+            if (email === "" || password.length < 6) {
+                document.getElementById("message").innerText =
+                    "Enter your email and a password of at least 6 characters.";
+                return;
+            }
 
             try {
                 let account = await createUserWithEmailAndPassword(
@@ -116,14 +166,22 @@ import { saveNewGame } from "./database.js";
 
             } catch (error) {
                 document.getElementById("message").innerText =
-                    error.message;
+                    "Could not create the account. The email may already have one.";
             }
         };
+
 
         // Log into an existing account
         window.login = async function() {
             let email = document.getElementById("email").value.trim();
             let password = document.getElementById("password").value;
+
+            // Check the form before sending it to Firebase
+            if (email === "" || password.length < 6) {
+                document.getElementById("message").innerText =
+                    "Enter your email and a password of at least 6 characters.";
+                return;
+            }
 
             try {
                 await signInWithEmailAndPassword(auth, email, password);
@@ -137,6 +195,7 @@ import { saveNewGame } from "./database.js";
             }
         };
 
+
         // Log out
         window.logout = async function() {
             try {
@@ -146,6 +205,7 @@ import { saveNewGame } from "./database.js";
                     "Could not log out.";
             }
         };
+
 
         // Check if someone is logged in
         onAuthStateChanged(auth, function(account) {
@@ -162,43 +222,265 @@ import { saveNewGame } from "./database.js";
             }
         });
 
-    // Fill the dropdown with every country
-let dropdown = document.getElementById("countryPick");
-for (let country of COUNTRIES) {
-    let option = document.createElement("option");
-    option.value = country.name;
-    option.innerText = country.name;
-    dropdown.appendChild(option);
-}
 
-// Start a new game with the chosen country
-window.startGame = async function() {
-    let chosen = document.getElementById("countryPick").value;
-    let game = new Game(COUNTRIES, chosen);
+        // Fill the dropdown with every country
+        let dropdown = document.getElementById("countryPick");
+        for (let country of COUNTRIES) {
+            let option = document.createElement("option");
+            option.value = country.name;
+            option.innerText = country.name;
+            dropdown.appendChild(option);
+        }
 
-    try {
-        let gameId = await saveNewGame(db, auth.currentUser.uid, game.getDataToSave());
-        document.getElementById("message").innerText = "Game saved. ID: " + gameId;
-        showBoard(game);
-    } catch (error) {
-        document.getElementById("message").innerText = "Could not start the game.";
-    }
-};
 
-// Show every country with its soldiers and who holds it
-function showBoard(game) {
-    let board = document.getElementById("board");
-    board.innerHTML = "<tr><th>Country</th><th>Soldiers</th><th>Held by</th></tr>";
+        // Add one line to the game log and scroll down to it
+        function addLog(text) {
+            let log = document.getElementById("log");
+            let line = document.createElement("p");
+            line.innerText = text;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
 
-    for (let country of game.countries) {
-        board.innerHTML += "<tr><td>" + country.name + "</td><td>" +
-            country.getSoldiers() + "</td><td>" + country.heldBy + "</td></tr>";
-    }
 
-    document.getElementById("turnInfo").innerText = "First turn: " + game.getCurrentPlayerName();
-}
+        // Wait for a number of milliseconds (used to slow the computer turns down)
+        function sleep(milliseconds) {
+            return new Promise(function(resolve) {
+                setTimeout(resolve, milliseconds);
+            });
+        }
 
-        </script>
+
+        // Start a new game with the chosen country
+        window.startGame = async function() {
+            if (npcRunning) {
+                document.getElementById("message").innerText = "Wait for the computer players to finish their turns.";
+                return;
+            }
+
+            let chosen = document.getElementById("countryPick").value;
+            currentGame = new Game(COUNTRIES, chosen);
+            document.getElementById("log").innerHTML = "";
+
+            try {
+                let gameId = await saveNewGame(db, auth.currentUser.uid, currentGame.getDataToSave());
+                document.getElementById("message").innerText = "Game saved. ID: " + gameId;
+            } catch (error) {
+                document.getElementById("message").innerText = "The game could not be saved, but you can still play.";
+            }
+
+            addLog("New game! You are playing as " + chosen + ". " +
+                currentGame.getCurrentPlayerName() + " goes first.");
+            showBoard();
+            await playComputerTurns();
+        };
+
+
+        // Show every country with its soldiers and who holds it
+        function showBoard() {
+            let board = document.getElementById("board");
+            board.innerHTML = "<tr><th>Country</th><th>Soldiers</th><th>Held by</th></tr>";
+
+            for (let country of currentGame.countries) {
+                board.innerHTML += "<tr><td>" + country.name + "</td><td>" +
+                    country.getSoldiers() + "</td><td>" + country.heldBy + "</td></tr>";
+            }
+
+            document.getElementById("turnInfo").innerText =
+                "You are playing as " + currentGame.getHumanName() + ". Round " +
+                currentGame.round + ". Current turn: " + currentGame.getCurrentPlayerName() + ".";
+
+            document.getElementById("poolCount").innerText = reinforcementsLeft;
+            fillLists();
+        }
+
+
+        // Make one option for a dropdown
+        function makeOption(country) {
+            let option = document.createElement("option");
+            option.value = country.name;
+            option.innerText = country.name + " (" + country.getSoldiers() + ")";
+            return option;
+        }
+
+
+        // Fill the three dropdowns for your turn:
+        // "Soldiers to place" shows all your countries,
+        // "Attack from" shows your countries with 2 or more soldiers,
+        // "Target" shows every country that is not yours.
+        function fillLists() {
+            let me = currentGame.getHumanName();
+            let placeList = document.getElementById("placeIn");
+            let fromList = document.getElementById("attackFrom");
+            let targetList = document.getElementById("attackTarget");
+
+            // Remember what was selected so it stays selected
+            let oldPlace = placeList.value;
+            let oldFrom = fromList.value;
+            let oldTarget = targetList.value;
+
+            placeList.innerHTML = "";
+            fromList.innerHTML = "";
+            targetList.innerHTML = "";
+
+            for (let country of currentGame.countries) {
+                if (country.heldBy === me) {
+                    placeList.appendChild(makeOption(country));
+                    if (country.getSoldiers() >= 2) {
+                        fromList.appendChild(makeOption(country));
+                    }
+                } else {
+                    targetList.appendChild(makeOption(country));
+                }
+            }
+
+            keepSelection(placeList, oldPlace);
+            keepSelection(fromList, oldFrom);
+            keepSelection(targetList, oldTarget);
+        }
+
+
+        // Put the old choice back. If it is gone, choose the first option instead.
+        function keepSelection(list, oldValue) {
+            if (oldValue !== "") {
+                list.value = oldValue;
+            }
+            if (list.value === "" && list.options.length > 0) {
+                list.selectedIndex = 0;
+            }
+        }
+
+
+        // The computer players take their turns until it is your turn again
+        async function playComputerTurns() {
+            npcRunning = true;
+            humanTurn = false;
+
+            while (currentGame.getWinner() === null) {
+                let player = currentGame.getCurrentPlayer();
+
+                if (currentGame.getPlayer(currentGame.getHumanName()).eliminated) {
+                    break;
+                } else if (player.eliminated) {
+                    currentGame.endTurn();
+                } else if (!player.isNPC) {
+                    break;   // it is your turn
+                } else {
+                    let lines = takeNpcTurn(currentGame, player.name);
+                    for (let line of lines) {
+                        addLog(line);
+                        showBoard();
+                        // Fast-forward makes the wait much shorter, but you still see every move
+                        let wait = 1200;
+                        if (document.getElementById("fastForward").checked) {
+                            wait = 100;
+                        }
+                        await sleep(wait);
+                    }
+                    currentGame.endTurn();
+                }
+            }
+
+            npcRunning = false;
+            showBoard();
+
+            if (currentGame.getWinner() !== null) {
+                addLog(currentGame.getWinner() + " has conquered the world! Game over.");
+            } else if (currentGame.getPlayer(currentGame.getHumanName()).eliminated) {
+                addLog("You have lost all your countries. Game over.");
+            } else {
+                startHumanTurn();
+            }
+        }
+
+
+        // It is your turn: give you your new soldiers
+        function startHumanTurn() {
+            humanTurn = true;
+            attackFinished = false;
+            reinforcementsLeft = currentGame.giveReinforcements(currentGame.getHumanName());
+
+            let text = "Round " + currentGame.round + ": it is your turn.";
+            if (reinforcementsLeft > 0) {
+                text = text + " You have " + reinforcementsLeft + " new soldiers to place.";
+            }
+            addLog(text);
+            showBoard();
+        }
+
+
+        // Place one new soldier on the chosen country
+        window.placeSoldier = function() {
+            if (!humanTurn) {
+                document.getElementById("message").innerText = "Wait for your turn.";
+                return;
+            }
+            if (reinforcementsLeft <= 0) {
+                document.getElementById("message").innerText = "You have no soldiers to place.";
+                return;
+            }
+
+            let name = document.getElementById("placeIn").value;
+            currentGame.getCountry(name).addSoldiers(1);
+            reinforcementsLeft = reinforcementsLeft - 1;
+            showBoard();
+        };
+
+
+        // Roll the dice: fight one round
+        window.rollDice = function() {
+            if (currentGame === null || !humanTurn) {
+                document.getElementById("message").innerText = "Wait for your turn.";
+                return;
+            }
+            if (attackFinished) {
+                document.getElementById("message").innerText = "Your attack is over for this turn. Tap End Turn.";
+                return;
+            }
+
+            let from = document.getElementById("attackFrom").value;
+            let target = document.getElementById("attackTarget").value;
+
+            if (from === "" || target === "") {
+                document.getElementById("message").innerText =
+                    "Pick a country to attack from and a target. You need 2 or more soldiers to attack.";
+                return;
+            }
+
+            let result = currentGame.fightOneRound(from, target);
+            let text = describeBattle(from, target, result);
+
+            if (result.conquered || result.failed) {
+                attackFinished = true;
+                text = text + " Tap End Turn.";
+            } else {
+                text = text + " Roll again or tap End Turn.";
+            }
+
+            document.getElementById("message").innerText = "";
+            addLog(text);
+            showBoard();
+
+            if (currentGame.getWinner() !== null) {
+                humanTurn = false;
+                addLog(currentGame.getWinner() + " has conquered the world! Game over.");
+            }
+        };
+
+
+        // End your turn (this also stops any attack). Then the computer players play.
+        window.endTurn = async function() {
+            if (currentGame === null || !humanTurn || npcRunning) {
+                return;
+            }
+
+            humanTurn = false;
+            addLog("You ended your turn.");
+            currentGame.endTurn();
+            await playComputerTurns();
+        };
+
+    </script>
 
 </body>
 </html>
