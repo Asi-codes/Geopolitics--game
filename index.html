@@ -24,7 +24,7 @@
             cursor: pointer;
         }
 
-        #log {
+        #log, #watchLog {
             max-width: 650px;
             height: 240px;
             margin: auto;
@@ -35,7 +35,7 @@
             border: 1px solid gray;
         }
 
-        #log p {
+        #log p, #watchLog p {
             margin: 4px 0;
         }
     </style>
@@ -70,12 +70,17 @@
         <p><label><input type="checkbox" id="fastForward"> Fast-forward computer turns</label></p>
 
         <p id="turnInfo"></p>
+        <p id="shareLink"></p>
         <table id="board" border="1" style="margin: auto;"></table>
 
         <h3>Your turn</h3>
         <p>Soldiers to place: <b id="poolCount">0</b>
             <select id="placeIn"></select>
             <button onclick="placeSoldier()">Place 1 Soldier</button></p>
+        <p>Move soldiers from <select id="moveFrom"></select>
+            to <select id="moveTo"></select>
+            <input type="number" id="moveAmount" value="1" min="1" style="width: 60px;">
+            <button onclick="moveSoldiers()">Move</button></p>
         <p>Attack from: <select id="attackFrom"></select></p>
         <p>Target: <select id="attackTarget"></select></p>
         <button onclick="rollDice()">Roll Dice</button>
@@ -89,6 +94,16 @@
     </div>
 
     <p id="message"></p>
+
+    <!-- Shown instead of the game when someone opens a shared link (?game=...) -->
+    <div id="watch" style="display:none;">
+        <h2>Watching a game</h2>
+        <p id="watchInfo"></p>
+        <table id="watchBoard" border="1" style="margin: auto;"></table>
+        <h3>Game log</h3>
+        <div id="watchLog"></div>
+        <p><a href="./">Play your own game</a></p>
+    </div>
 
     <script type="module">
 
@@ -113,7 +128,7 @@
         import { COUNTRIES } from "./countries.js";
         import { Game, describeBattle } from "./game.js";
         import { takeNpcTurn } from "./npc.js";
-        import { saveNewGame } from "./database.js";
+        import { saveNewGame, updateGame, watchGame } from "./database.js";
 
 
         // Connect to Firebase
@@ -137,6 +152,12 @@
         let npcRunning = false;        // true while the computer players are playing
         let attackFinished = false;    // true once your attack for this turn is over
         let reinforcementsLeft = 0;    // new soldiers you still have to place
+        let attackInProgress = false;  // true while an attack has started but is not over
+        let currentGameId = null;      // the ID of the saved game in Firestore
+        let gameLog = [];              // every line of the log (saved with the game)
+
+        // If the link ends in ?game=ID, this page only WATCHES that game
+        let watchId = new URLSearchParams(window.location.search).get("game");
 
 
         // Create a new account
@@ -209,6 +230,10 @@
 
         // Check if someone is logged in
         onAuthStateChanged(auth, function(account) {
+            if (watchId !== null) {
+                return;   // when watching a game we never show the login or game screens
+            }
+
             if (account) {
                 document.getElementById("login").style.display = "none";
                 document.getElementById("game").style.display = "block";
@@ -240,6 +265,12 @@
             line.innerText = text;
             log.appendChild(line);
             log.scrollTop = log.scrollHeight;
+
+            // Remember the line so it can be saved with the game (keep the last 300)
+            gameLog.push(text);
+            if (gameLog.length > 300) {
+                gameLog.shift();
+            }
         }
 
 
@@ -336,11 +367,21 @@
             let chosen = document.getElementById("countryPick").value;
             currentGame = new Game(COUNTRIES, chosen);
             document.getElementById("log").innerHTML = "";
+            gameLog = [];
+            attackInProgress = false;
 
             try {
                 let gameId = await saveNewGame(db, auth.currentUser.uid, currentGame.getDataToSave());
-                document.getElementById("message").innerText = "Game saved. ID: " + gameId;
+                currentGameId = gameId;
+
+                // The share link: anyone who opens it can watch this game (without logging in)
+                let link = window.location.origin + window.location.pathname + "?game=" + gameId;
+                document.getElementById("shareLink").innerHTML =
+                    "Share this link so others can watch: <a href='" + link + "'>" + link + "</a>";
+                document.getElementById("message").innerText = "Game saved.";
             } catch (error) {
+                currentGameId = null;
+                document.getElementById("shareLink").innerText = "";
                 document.getElementById("message").innerText = "The game could not be saved, but you can still play.";
             }
 
@@ -394,13 +435,22 @@
             let oldFrom = fromList.value;
             let oldTarget = targetList.value;
 
+            let moveFromList = document.getElementById("moveFrom");
+            let moveToList = document.getElementById("moveTo");
+            let oldMoveFrom = moveFromList.value;
+            let oldMoveTo = moveToList.value;
+
             placeList.innerHTML = "";
             fromList.innerHTML = "";
             targetList.innerHTML = "";
+            moveFromList.innerHTML = "";
+            moveToList.innerHTML = "";
 
             for (let country of currentGame.countries) {
                 if (country.heldBy === me) {
                     placeList.appendChild(makeOption(country));
+                    moveFromList.appendChild(makeOption(country));
+                    moveToList.appendChild(makeOption(country));
                     if (country.getSoldiers() >= 2) {
                         fromList.appendChild(makeOption(country));
                     }
@@ -412,6 +462,8 @@
             keepSelection(placeList, oldPlace);
             keepSelection(fromList, oldFrom);
             keepSelection(targetList, oldTarget);
+            keepSelection(moveFromList, oldMoveFrom);
+            keepSelection(moveToList, oldMoveTo);
         }
 
 
@@ -456,6 +508,7 @@
                         await sleep(wait);
                     }
                     currentGame.endTurn();
+                    await saveProgress();   // so people watching see the new state
                 }
             }
 
@@ -469,6 +522,8 @@
             } else {
                 startHumanTurn();
             }
+
+            saveProgress();
         }
 
 
@@ -476,6 +531,7 @@
         function startHumanTurn() {
             humanTurn = true;
             attackFinished = false;
+            attackInProgress = false;
             reinforcementsLeft = currentGame.giveReinforcements(currentGame.getHumanName());
 
             let text = "Round " + currentGame.round + ": it is your turn.";
@@ -502,6 +558,7 @@
             currentGame.getCountry(name).addSoldiers(1);
             reinforcementsLeft = reinforcementsLeft - 1;
             showBoard();
+            saveProgress();
         };
 
 
@@ -528,6 +585,8 @@
             let result = currentGame.fightOneRound(from, target);
             let text = describeBattle(from, target, result);
 
+            attackInProgress = !(result.conquered || result.failed);
+
             if (result.conquered || result.failed) {
                 attackFinished = true;
                 text = text + " Tap End Turn.";
@@ -544,6 +603,8 @@
                 humanTurn = false;
                 addLog(currentGame.getWinner() + " has conquered the world! Game over.");
             }
+
+            saveProgress();
         };
 
 
@@ -558,6 +619,95 @@
             currentGame.endTurn();
             await playComputerTurns();
         };
+
+
+        // Save the latest game state and log to Firestore.
+        // If saving fails the game simply carries on.
+        async function saveProgress() {
+            if (currentGameId === null || currentGame === null) {
+                return;
+            }
+
+            try {
+                await updateGame(db, currentGameId, currentGame.getDataToSave(), gameLog);
+            } catch (error) {
+                console.log("Could not save progress:", error);
+            }
+        }
+
+
+        // Move soldiers between two of your own countries (not while an attack is in progress)
+        window.moveSoldiers = function() {
+            if (currentGame === null || !humanTurn) {
+                document.getElementById("message").innerText = "Wait for your turn.";
+                return;
+            }
+            if (attackInProgress) {
+                document.getElementById("message").innerText =
+                    "You cannot move soldiers while an attack is in progress. Finish the attack or tap End Turn.";
+                return;
+            }
+
+            let from = document.getElementById("moveFrom").value;
+            let to = document.getElementById("moveTo").value;
+            let amount = parseInt(document.getElementById("moveAmount").value);
+
+            let problem = currentGame.transferSoldiers(from, to, amount);
+            if (problem !== "") {
+                document.getElementById("message").innerText = problem;
+                return;
+            }
+
+            document.getElementById("message").innerText = "";
+            addLog("You moved " + amount + " soldier(s) from " + from + " to " + to + ".");
+            showBoard();
+            saveProgress();
+        };
+
+
+        // Show a game that someone else is playing (read-only)
+        function showWatchedGame(data) {
+            let info = document.getElementById("watchInfo");
+            let board = document.getElementById("watchBoard");
+            let log = document.getElementById("watchLog");
+
+            if (data === null) {
+                info.innerText = "This game could not be found.";
+                board.innerHTML = "";
+                log.innerHTML = "";
+                return;
+            }
+
+            info.innerText = "Round " + data.round + ". Current turn: " + data.players[data.turnIndex].name + ".";
+            if (data.status === "finished") {
+                info.innerText = data.winner + " has conquered the world! Game over.";
+            }
+
+            board.innerHTML = "<tr><th>Country</th><th>Soldiers</th><th>Held by</th></tr>";
+            for (let country of data.countries) {
+                board.innerHTML += "<tr><td>" + country.name + "</td><td>" +
+                    country.soldiers + "</td><td>" + country.heldBy + "</td></tr>";
+            }
+
+            log.innerHTML = "";
+            if (data.log) {
+                for (let text of data.log) {
+                    let line = document.createElement("p");
+                    line.innerText = text;
+                    log.appendChild(line);
+                }
+            }
+            log.scrollTop = log.scrollHeight;
+        }
+
+
+        // If the link has ?game=ID, show the watching screen and follow that game live
+        if (watchId !== null) {
+            document.getElementById("login").style.display = "none";
+            document.getElementById("game").style.display = "none";
+            document.getElementById("watch").style.display = "block";
+            watchGame(db, watchId, showWatchedGame);
+        }
 
     </script>
 
