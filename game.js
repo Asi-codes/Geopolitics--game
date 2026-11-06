@@ -259,6 +259,30 @@ export class Game {
         }
     }
 
+    // Move soldiers between two countries held by the same player.
+    // Gives back "" if it worked, or a sentence that explains the problem.
+    transferSoldiers(fromName, toName, amount) {
+        let from = this.getCountry(fromName);
+        let to = this.getCountry(toName);
+
+        if (from === null || to === null || fromName === toName) {
+            return "Choose two different countries.";
+        }
+        if (from.heldBy !== to.heldBy) {
+            return "You can only move soldiers between countries you hold.";
+        }
+        if (!(amount >= 1)) {
+            return "Enter a number of soldiers that is 1 or more.";
+        }
+        if (from.getSoldiers() - amount < 1) {
+            return fromName + " must keep at least 1 soldier.";
+        }
+
+        from.loseSoldiers(amount);
+        to.addSoldiers(amount);
+        return "";
+    }
+
     // If one player holds every country they win. Otherwise give back null.
     getWinner() {
         let first = this.countries[0].heldBy;
@@ -282,8 +306,14 @@ export class Game {
             });
         }
 
+        let status = "playing";
+        if (this.getWinner() !== null) {
+            status = "finished";
+        }
+
         return {
-            status: "playing",
+            status: status,
+            winner: this.getWinner(),
             round: this.round,
             turnIndex: this.turnIndex,
             players: this.players,
