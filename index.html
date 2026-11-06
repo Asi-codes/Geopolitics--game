@@ -66,6 +66,13 @@
 
         <h3>Choose your country</h3>
         <select id="countryPick"></select>
+        <br>
+        Computer difficulty:
+        <select id="levelPick">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+        </select>
         <button onclick="startGame()">Start New Game</button>
         <p><label><input type="checkbox" id="fastForward"> Fast-forward computer turns</label></p>
 
@@ -365,7 +372,8 @@
             }
 
             let chosen = document.getElementById("countryPick").value;
-            currentGame = new Game(COUNTRIES, chosen);
+            let level = document.getElementById("levelPick").value;
+            currentGame = new Game(COUNTRIES, chosen, level);
             document.getElementById("log").innerHTML = "";
             gameLog = [];
             attackInProgress = false;
@@ -385,7 +393,7 @@
                 document.getElementById("message").innerText = "The game could not be saved, but you can still play.";
             }
 
-            addLog("New game! You are playing as " + chosen + ". " +
+            addLog("New game! You are playing as " + chosen + " on " + level + " difficulty. " +
                 currentGame.getCurrentPlayerName() + " goes first.");
             showBoard();
             await playComputerTurns();
@@ -493,7 +501,7 @@
                 } else if (!player.isNPC) {
                     break;   // it is your turn
                 } else {
-                    let lines = takeNpcTurn(currentGame, player.name);
+                    let lines = takeNpcTurn(currentGame, player.name, currentGame.level);
                     for (let line of lines) {
                         addLog(line);
                         if (line.includes(" rolled ")) {
@@ -679,6 +687,9 @@
             }
 
             info.innerText = "Round " + data.round + ". Current turn: " + data.players[data.turnIndex].name + ".";
+            if (data.level) {
+                info.innerText = info.innerText + " Difficulty: " + data.level + ".";
+            }
             if (data.status === "finished") {
                 info.innerText = data.winner + " has conquered the world! Game over.";
             }
