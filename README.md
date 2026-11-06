@@ -62,14 +62,18 @@ How the computer players decide
 
 AI commentary
 
-Each battle can be sent to Gemini through Firebase AI Logic, which returns one short commentary line for the log. To stay inside the free limit, not every battle gets commentary. If the AI is not available, the game carries on without it.
+The game is built to send battles to Gemini (Google's AI) through Firebase AI Logic and show one short commentary line in the Game log. The code is in index.html (the functions setupAI and askForCommentary). It tries a few Gemini models in turn. When I tested it, Google's AI was often busy or returned errors (and my App Check setup was not working), so commentary appeared rarely or not at all in my tests. The game carries on normally without it. This is the one requirement in the exam paper that I could not get working reliably.
 
 
  Running it yourself
  
 It is a website with no build step. Download the ZIP, then open the folder with a simple local web server (for example the "Live Server" extension in VS Code), because the JavaScript files are loaded as modules. To use your own Firebase project, replace firebaseConfig in index.html, turn on Email/Password sign-in, create a Firestore database, and publish firestore.rules.
 
-## What is not finished
+What is not finished
+- Reliable AI commentary (see the AI commentary section above).
 - NPC difficulty levels and the other bonus ideas.
 - The computer players only move soldiers right after a conquest.
 - AI commentary is skipped for some battles (to stay inside the free limit) and when Google's AI is busy or unavailable.
+
+AI use
+I used an AI assistant (Claude) to help write and explain some code.
