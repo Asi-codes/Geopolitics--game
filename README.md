@@ -1,7 +1,7 @@
 # Geopolitics Game (INF4001 Entrance Exam)
 
 Name: Asive Ave Magqabi
-Student number:MAQ
+Student number:MGQASI005
 
 ## Links
 - Live game: https://asi-codes.github.io/Geopolitics--game/
