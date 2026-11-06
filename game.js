@@ -75,8 +75,9 @@ export class Country {
 
 // A Game is one whole game with 10 countries and 10 players
 export class Game {
-    constructor(allCountries, yourCountryName) {
+    constructor(allCountries, yourCountryName, level) {
         this.round = 1;
+        this.level = level || "normal";   // how clever the computer players are: easy, normal or hard
         this.turnsThisRound = 0;   // how many turns have been played in this round
         this.countries = [];
         this.players = [];
@@ -314,6 +315,7 @@ export class Game {
         return {
             status: status,
             winner: this.getWinner(),
+            level: this.level,
             round: this.round,
             turnIndex: this.turnIndex,
             players: this.players,
