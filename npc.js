@@ -4,6 +4,17 @@
 
 import { describeBattle } from "./game.js";
 
+// Difficulty levels. Each level changes how the computer players behave.
+//   attackMargin: how many MORE soldiers than its target a country needs before it attacks
+//   defend:       true = half of the new soldiers go to the weakest country to protect it
+//   transfer:     true = after a conquest, move half of the spare soldiers into the new country
+//   targetHuman:  true = go for the human player's weakest country first
+const LEVELS = {
+    easy:   { attackMargin: 4, defend: false, transfer: false, targetHuman: false },
+    normal: { attackMargin: 2, defend: true,  transfer: true,  targetHuman: false },
+    hard:   { attackMargin: 1, defend: true,  transfer: true,  targetHuman: true }
+};
+
 // The country with the most soldiers
 function findStrongest(countries) {
     let strongest = countries[0];
@@ -26,6 +37,19 @@ function findWeakest(countries) {
     return weakest;
 }
 
+// The weakest country held by one particular player (null if they hold none)
+function findWeakestHeldBy(game, ownerName) {
+    let weakest = null;
+    for (let c of game.countries) {
+        if (c.heldBy === ownerName) {
+            if (weakest === null || c.getSoldiers() < weakest.getSoldiers()) {
+                weakest = c;
+            }
+        }
+    }
+    return weakest;
+}
+
 // The weakest country that this player does not hold
 function findWeakestEnemy(game, playerName) {
     let weakest = null;
@@ -39,20 +63,31 @@ function findWeakestEnemy(game, playerName) {
     return weakest;
 }
 
-// One turn for a computer player
-export function takeNpcTurn(game, playerName) {
+// One turn for a computer player. The level is "easy", "normal" or "hard".
+export function takeNpcTurn(game, playerName, level) {
+    let settings = LEVELS[level];
+    if (settings === undefined) {
+        settings = LEVELS.normal;
+    }
+
     let lines = [];
 
     // Step 1: new soldiers (from round 2).
-    // Half go to the strongest country so it can attack.
-    // The rest go to the weakest country so it is harder to conquer.
+    // On easy, they all go to the strongest country.
+    // On normal and hard, half go to the strongest country (to attack)
+    // and half go to the weakest country (to defend it).
     let newSoldiers = game.giveReinforcements(playerName);
     if (newSoldiers > 0) {
         let myCountries = game.getCountriesHeldBy(playerName);
-        let forAttack = Math.ceil(newSoldiers / 2);
-        let forDefence = newSoldiers - forAttack;
         let strongestCountry = findStrongest(myCountries);
         let weakestCountry = findWeakest(myCountries);
+
+        let forAttack = newSoldiers;
+        let forDefence = 0;
+        if (settings.defend) {
+            forAttack = Math.ceil(newSoldiers / 2);
+            forDefence = newSoldiers - forAttack;
+        }
 
         strongestCountry.addSoldiers(forAttack);
         if (forDefence > 0) {
@@ -66,19 +101,36 @@ export function takeNpcTurn(game, playerName) {
         }
     }
 
-    // Step 2: choose the weakest enemy country, and only attack if we are clearly stronger.
+    // Step 2: choose the weakest enemy country, and only attack if we are strong enough.
     let attacker = findStrongest(game.getCountriesHeldBy(playerName));
-    let target = findWeakestEnemy(game, playerName);
+    let target = null;
+    let reason = "";
 
-    if (target === null || attacker.getSoldiers() < target.getSoldiers() + 2) {
+    // On hard, the computer players go for the human player first (if they are strong enough)
+    if (settings.targetHuman && playerName !== game.getHumanName()) {
+        let humanTarget = findWeakestHeldBy(game, game.getHumanName());
+        if (humanTarget !== null && attacker.getSoldiers() >= humanTarget.getSoldiers() + settings.attackMargin) {
+            target = humanTarget;
+            reason = " It belongs to the human player, and on hard the computer players go for you first.";
+        }
+    }
+
+    // Otherwise choose the weakest enemy country
+    if (target === null) {
+        target = findWeakestEnemy(game, playerName);
+        reason = " It is the weakest enemy country.";
+    }
+
+    if (target === null || attacker.getSoldiers() < target.getSoldiers() + settings.attackMargin) {
         lines.push(playerName + " skips its attack: " + attacker.name + " has " + attacker.getSoldiers() +
-            " soldiers and no enemy is weak enough (it needs at least 2 more soldiers than its target).");
+            " soldiers and no enemy is weak enough (it needs at least " + settings.attackMargin +
+            " more soldiers than its target).");
         return lines;
     }
 
     lines.push(playerName + " attacks " + target.name + " from " + attacker.name + ". " +
-        target.name + " is the weakest enemy (" + target.getSoldiers() + " soldiers) and " +
-        attacker.name + " has " + attacker.getSoldiers() + ".");
+        target.name + " has " + target.getSoldiers() + " soldiers and " +
+        attacker.name + " has " + attacker.getSoldiers() + "." + reason);
 
     // Step 3: keep fighting while we have more soldiers than the target
     let rounds = 0;
@@ -97,14 +149,16 @@ export function takeNpcTurn(game, playerName) {
         lines.push(describeBattle(attacker.name, target.name, result));
 
         if (result.conquered) {
-            // Step 4: move half of the spare soldiers into the new country to defend it
-            let spare = attacker.getSoldiers() - 1;
-            let move = Math.floor(spare / 2);
-            if (move > 0) {
-                attacker.loseSoldiers(move);
-                target.addSoldiers(move);
-                lines.push(playerName + " moved " + move + " soldiers from " + attacker.name +
-                    " into " + target.name + " to defend its new country.");
+            // Step 4: on normal and hard, move half of the spare soldiers into the new country
+            if (settings.transfer) {
+                let spare = attacker.getSoldiers() - 1;
+                let move = Math.floor(spare / 2);
+                if (move > 0) {
+                    attacker.loseSoldiers(move);
+                    target.addSoldiers(move);
+                    lines.push(playerName + " moved " + move + " soldiers from " + attacker.name +
+                        " into " + target.name + " to defend its new country.");
+                }
             }
             break;
         }
