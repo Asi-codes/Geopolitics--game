@@ -39,7 +39,6 @@
             margin: 4px 0;
         }
     </style>
-    <script src="https://www.google.com/recaptcha/enterprise.js?render=6LeSqxluAAAAAOeqYZmhhogJqNhof4OdWfeJmUxb"></script>
 </head>
 
 <body>
@@ -286,7 +285,7 @@
         // ---------- AI commentary ----------
         // Gemini (Google's AI) writes a short commentary line for battles.
         // It is loaded inside try/catch, so the game still works if the AI is not available.
-        const AI_MODELS = ["gemini-3.8-flash", "gemini-4-argon"];   // we try them in this order
+        const AI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"];   // we try them in this order
         const RECAPTCHA_KEY = "6LcCThluAAAAANgL45ipwh6FcNmhaZ-m1eq1dvp3";   // for App Check (not a secret)
         let aiModels = [];               // stays empty if the AI could not be loaded
         let commentaryBusy = false;      // true while we wait for the AI to answer
